@@ -2,14 +2,22 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <cassert>
+#include <vector>
+#include <string>
 #pragma comment(lib, "ws2_32.lib")
 
+
+static void msg(const char* msg){
+    fprintf(stderr, "%s\n", msg);
+}
 static void die(const char *msg) {
     int err = WSAGetLastError();
     fprintf(stderr, "[%d] %s\n", err, msg);
     WSACleanup();
     exit(1);
 }
+
+
 
 static int32_t read_full(int fd, char* buf, size_t n){
     while(n > 0){
@@ -39,37 +47,44 @@ static int32_t write_full(int fd, char* buf, size_t n){
     return 0;
 }
 
-const size_t k_max_msg = 4096;
-static int32_t query(int fd,const char* context){
-    uint32_t len = (uint32_t)strlen(context);
-    if(len>k_max_msg){
-        std::cerr << "msg too long" << std::endl;
-    }
-    char buf[4+k_max_msg];
-    memcpy(buf,&len,4);
-    memcpy(buf+4,context,len);
-    if(write_full(fd,buf,4+len)){
-        std::cerr << "write error" << std::endl;
-    }
+static void buf_append(std::vector<uint8_t> &buf,const uint8_t* data,size_t len){
+    buf.insert(buf.end(),data,data+len);
+}
 
-    char rbuf[4+k_max_msg+1];
+const size_t k_max_msg = 32 << 20;
+
+
+static int32_t send_req(int fd, const uint8_t* text, size_t len){
+    if(len > k_max_msg) return -1;
+    std::vector<uint8_t> wbuf;
+    buf_append(wbuf,(const uint8_t*)&len,4);
+    buf_append(wbuf,text,len);
+
+    return write_full(fd,wbuf.data(),wbuf.size());
+}
+
+static int32_t read_res(int fd){
+    std::vector<uint8_t> rbuf;
+    rbuf.resize(4);
+
     int32_t err = read_full(fd,rbuf,4);
     if(err){
-        std::cerr << "read error" << std::endl;
-        return -1;
-    }
-    memcpy(&len,rbuf,4);
-    if(len > k_max_msg){
-        std::cerr << "message too long" << std::endl;
-        return -1;
-    }
-    err = read_full(fd,rbuf+4,len);
-    if(err){
-        std::cerr << "read error" << std::endl;
-        return -1;
     }
 
-    std::cout << "received: " << std::string(rbuf+4,len) << std::endl;
+    uint32_t len = 0;
+    memcpy(&len,rbuf.data(),4);
+    if(len > k_max_msg){
+        msg("msg too long");
+        return -1;
+    }
+    rbuf.resize(4+len);
+    err = read_full(fd,&rbuf[4],len);
+    if(err){
+        msg("read failed");
+        return err;
+    }
+
+    printf("len: %u data: %s\n",len, len < 100 ? len : 100,&rbuf[4]);
     return 0;
 }
 
@@ -99,22 +114,30 @@ int main() {
 
     std::cout << "Connected to server!" << std::endl;
 
-    {
-        int32_t err = query(fd, "SET foo bar");
-        if (err) {
-            goto DONE;
+    std::vector<std::string> query_list = {
+        "hello1","hello2","hello3",
+        std::string(k_max_msg,'z'),
+        "hello5"
+    };
+
+    for(const std::string &s:query_list){
+
+        int32_t err = send_req(fd,(uint8_t *)s.data(),s.size());
+        if(err){
+            std::cout << "Error: " << err << std::endl;
+            break;
         }
-        err = query(fd, "GET foo");
-        if (err) {
-            goto DONE;
-        }
-        err = query(fd, "DEL foo");
-        if (err) {
-            goto DONE;
+    }
+
+    for(size_t i = 0; i < query_list.size();++i){
+        int32_t err = read_res(fd);
+        if (err)
+        {
+            std::cout << "Error: " << err << std::endl;
+            break;
         }
         
     }
-DONE:
         
     std::cout << "Done!" << std::endl;
     closesocket(fd);

@@ -1,14 +1,20 @@
+#define _WIN32_WINNT 0x0600
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
 #include <iostream>
 #include <vector>
 #include <unordered_map>
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
-static void msg(const char *msg){
-    fprintf(stderr, "%s\n", msg);
+static void msg(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    fprintf(stderr, "\n");
 }
 
 static void die(const char *msg) {
