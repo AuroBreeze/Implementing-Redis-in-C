@@ -2,6 +2,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+
 #include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -9,12 +10,8 @@
 
 using namespace std;
 
-static void msg(const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    fprintf(stderr, "\n");
+static void msg(const char *fmt) {
+    fprintf(stderr, "%s\n",fmt);
 }
 
 static void die(const char *msg) {
