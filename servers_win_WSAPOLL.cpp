@@ -6,7 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
-#pragma comment(lib, "ws2_32.lib")
+//#pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
