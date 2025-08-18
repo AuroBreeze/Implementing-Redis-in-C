@@ -47,48 +47,64 @@ static int32_t write_full(int fd, uint8_t* buf, size_t n){
     return 0;
 }
 
-static void buf_append(std::vector<uint8_t> &buf,const uint8_t* data,size_t len){
-    buf.insert(buf.end(),data,data+len);
-}
 
-const size_t k_max_msg = 32 << 20;
+const size_t k_max_msg = 4096;
 
 
-static int32_t send_req(int fd, const uint8_t* text, size_t len){
+static int32_t send_req(int fd, const std::vector<std::string> &cmd){
+    uint32_t len = 4;
+    for(const std::string &s:cmd){
+        len += 4+s.size();
+    }
     if(len > k_max_msg) return -1;
-    std::vector<uint8_t> wbuf;
-    buf_append(wbuf,(const uint8_t*)&len,4);
-    buf_append(wbuf,text,len);
+    char wbuf[4+k_max_msg];
+    memcpy(wbuf,&len,4);
+    uint32_t n = cmd.size();
+    memcpy(&wbuf[4],&n,4);
 
-    return write_full(fd,wbuf.data(),wbuf.size());
+    size_t cur = 8;
+    for(const std::string &s:cmd){
+        uint32_t p = (uint32_t)s.size();
+        memcpy(&wbuf[cur],&p,4);
+        memcpy(&wbuf[cur+4],s.data(),s.size());
+        cur += 4+p;
+    }
+
+    return write_full(fd,(uint8_t *)wbuf,4+len);
 }
 
 static int32_t read_res(int fd){
-    std::vector<uint8_t> rbuf;
-    rbuf.resize(4);
+    char rbuf[4+k_max_msg];
 
-    int32_t err = read_full(fd,rbuf.data(),4);
+    int32_t err = read_full(fd,(uint8_t *)rbuf,4);
     if(err){
     }
 
     uint32_t len = 0;
-    memcpy(&len,rbuf.data(),4);
+    memcpy(&len,rbuf,4);
     if(len > k_max_msg){
         msg("msg too long");
         return -1;
     }
-    rbuf.resize(4+len);
-    err = read_full(fd,rbuf.data()+4,len);
+    
+    err = read_full(fd,(uint8_t *)&rbuf[4],len);
     if(err){
         msg("read failed");
         return err;
     }
 
-    printf("len: %u data: %s\n",len, len < 100 ? len : 100,&rbuf[4]);
+    uint32_t rescode = 0;
+    if(len < 4){
+        msg("bad response");
+        return -1;
+    }
+    memcpy(&rescode,&rbuf[4],4);
+
+    printf("server says:[%u] %.*s\n",rescode,len-4,&rbuf[8]);
     return 0;
 }
 
-int main() {
+int main(int argc, char **argv) {
     // 初始化Winsock
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
@@ -114,31 +130,20 @@ int main() {
 
     std::cout << "Connected to server!" << std::endl;
 
-    std::vector<std::string> query_list = {
-        "hello1","hello2","hello3",
-        std::string(100,'z'),
-        "hello5"
-    };
-
-    for(const std::string &s:query_list){
-
-        int32_t err = send_req(fd,(uint8_t *)s.data(),s.size());
-        if(err){
-            std::cout << "Error: " << err << std::endl;
-            break;
-        }
+    std::vector<std::string> cmd;
+    for(int i = 1; i<argc ; ++i){
+        cmd.push_back(argv[i]);
+    }
+    int32_t err = send_req(fd, cmd);
+    if (err) {
+        die("send_request");
     }
 
-    for(size_t i = 0; i < query_list.size();++i){
-        int32_t err = read_res(fd);
-        if (err)
-        {
-            std::cout << "Error: " << err << std::endl;
-            break;
-        }
-        
+    err = read_res(fd);
+    if (err) {
+        die("read_res");
     }
-        
+
     std::cout << "Done!" << std::endl;
     closesocket(fd);
     
