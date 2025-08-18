@@ -13,7 +13,7 @@
 
 > 需要注意的是，`WSAstartup()`是必须调用的，否则`socket`将无法使用。同时也需要注意，在程序结束后需要调用`WSACleanup()`函数，清理`socket`环境，释放`Winsock`所占的资源。
 
-```c++
+```cpp
 WSADATA wsaData;
 if(WSAStartup(MAKEWORD(2,2), &wsaData) != 0){
     std::cerr << "WSAStartup() failed" << std::endl;
@@ -28,7 +28,7 @@ if(WSAStartup(MAKEWORD(2,2), &wsaData) != 0){
 ### start
 
 #### socket()
-```c++
+```cpp
 SOCKET socket = socket(AF_INET, SOCK_STREAM, 0);
 if(socket == INVALID_SOCKET){
     die("socket() failed"); // die() 函数 后续进行编写，其功能为输出错误信息并正常退出程序
@@ -44,14 +44,14 @@ if(socket == INVALID_SOCKET){
 `0`表示使用默认协议，这个参数也可以使用`IPPROTO_TCP`，`IPPROTO_UDP`等等。
 
 #### sockaddr{},htons(),htonl()
-```c++
+```cpp
 sockaddr_in addr{}; // 创建一个sockaddr_in结构体变量,主要作用为存储套接字地址信息
 addr.sin_family = AF_INET; // 设置套接字类型为IPv4
 addr.sin_port = htons(6379); // 设置端口号
 addr.sin_addr.s_addr = htonl(INADDR_ANY); // 设置IP地址为任意
 ```
 
-```c++
+```cpp
 struct sockaddr {
 	u_short	sa_family;
 	char	sa_data[14];
@@ -75,7 +75,7 @@ struct sockaddr_in {
 
 
 #### setsockopt()
-```c++
+```cpp
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt)); // 设置端口复用
 ```
@@ -90,7 +90,7 @@ struct sockaddr_in {
 
 #### bind(),listen()
 
-```c++
+```cpp
     if(bind(fd, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR)
         die("bind() failed");
 
@@ -110,7 +110,7 @@ struct sockaddr_in {
 
 > 只需要记住系统根据 `sa_family/sin6_family` 判断协议,内核根据这个**字段**解析剩余内存，所以当`sin_family`为AF_INET时，内核就只解析前8个字节，后面的8个字节会忽略掉。
 
-```c++
+```cpp
 struct sockaddr_in6 { 
     u_short       sin6_family;   // 2字节
     u_short       sin6_port;     // 2字节
@@ -137,7 +137,7 @@ struct sockaddr_un {
 
 #### msg(),die()
 
-```c++
+```cpp
 static void msg(const char *fmt) {
     fprintf(stderr, "%s\n",fmt);
 }
@@ -158,7 +158,7 @@ static void die(const char *msg) {
 
 设置非阻塞模式
 
-```c++
+```cpp
 // 设置 socket 为非阻塞
 static void fd_set_nb(SOCKET fd){
     u_long mode = 1;
@@ -178,7 +178,7 @@ static void fd_set_nb(SOCKET fd){
 
 对于以后我们的连接，我们先创建一个`Conn`结构体，用于保存连接信息。
 
-```c++
+```cpp
 struct Conn {
     SOCKET fd;
     bool want_read = true;
@@ -201,7 +201,7 @@ struct Conn {
 
 #### buf_append(),buf_consume()
 
-```c++
+```cpp
 static void buf_append(vector<uint8_t> &buf, const uint8_t *data, size_t n){
     buf.insert(buf.end(), data, data + n);
 }
@@ -217,7 +217,7 @@ static void buf_consume(vector<uint8_t> &buf, size_t n){
 
 #### handle_accept()
 
-```c++
+```cpp
 static Conn* handle_accept(SOCKET listen_fd) {
     sockaddr_in client_addr{};
     int addrlen = sizeof(client_addr);
@@ -262,7 +262,7 @@ static Conn* handle_accept(SOCKET listen_fd) {
 
 #### try_one_request()
 
-```c++
+```cpp
 
 const size_t k_max_msg = 32 << 20;
 static bool try_one_requests(Conn* conn){
@@ -295,7 +295,7 @@ static bool try_one_requests(Conn* conn){
 
 #### handle_write()
 
-```c++
+```cpp
 static void handle_write(Conn* conn){
     if(conn->outgoing.empty()) return;
 
@@ -322,7 +322,7 @@ static void handle_write(Conn* conn){
 
 #### handle_read()
 
-```c++
+```cpp
 static void handle_read(Conn* conn){
     uint8_t buf[64*1024];
     int rv = recv(conn->fd, (char*)buf, sizeof(buf), 0);
@@ -354,7 +354,7 @@ static void handle_read(Conn* conn){
 
 #### main()
 
-```c++
+```cpp
     cout << "Server listening on port 6379..." << endl;
     unordered_map<SOCKET, Conn*> fd2conn_map;
     vector<WSAPOLLFD> poll_args;
@@ -422,7 +422,7 @@ static void handle_read(Conn* conn){
 
 这就是为什么我们每次都要使用`poll_args.clear()`来进行清空，并重新循环`fd2conn_map`从新写入`poll_args{}`中。
 
-```c++
+```cpp
 int poll(struct pollfd *fds, unsigned long nfds, int timeout);
 // *fds 是一个数组，里面存放了要监控的文件描述符
 // nfds 是要监控的文件描述符的个数
@@ -441,7 +441,7 @@ struct pollfd {
 
 相关的代码：
 
-```c++
+```cpp
 static Conn* handle_accept(SOCKET listen_fd){
     /*
     code...
@@ -461,7 +461,7 @@ static Conn* handle_accept(SOCKET listen_fd){
 
 所以将上述代码整合起来就是完整的服务端代码了
 
-```c++
+```cpp
 #define _WIN32_WINNT 0x0600
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -712,7 +712,7 @@ g++ -o server.exe server.cpp -lws2_32
 
 ### end
 
-```c++
+```cpp
 #include <iostream>
 #include <winsock2.h>
 #include <ws2tcpip.h>
