@@ -136,11 +136,13 @@ struct Ring_buf {
 - 基本的客户端-服务器架构
 - 简单的阻塞I/O模型
 - 基础命令实现
-
+- Finished 1000 clients, success = 993, time = 2.81091s
 ### 优化版本 (baisc_2) 
 - 非阻塞I/O和多路复用
 - 环形缓冲区内存优化
 - 性能提升和资源优化
+
+- Finished 1000 clients, success = 1000, time = 2.63774s
 
 ## 测试方法
 
