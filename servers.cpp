@@ -147,10 +147,13 @@ static void do_request(std::vector<std::string> &cmd,Response &out){
         }
         const std::string &val = it->second;
         out.data.assign(val.begin(),val.end());
+        out.status = RES_OK;
     }else if(cmd.size() == 3 && cmd[0] == "set"){
         g_data[cmd[1]].swap(cmd[2]);
+        out.status = RES_OK;
     }else if(cmd.size() == 2 && cmd[0] == "del"){
         g_data.erase(cmd[1]);
+        out.status = RES_OK;
     }else{
         out.status = RES_ERR;
 
