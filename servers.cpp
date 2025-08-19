@@ -8,10 +8,39 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-//#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
+
+
+struct Ring_buf{
+    std::vector<uint8_t> buf;
+    size_t head;
+    size_t tail;
+    size_t cap;
+    size_t status;
+
+    Ring_buf():buf(256),head(0),tail(0),cap(256){
+    }
+
+    size_t size() const{
+        return (cap + tail - head) % cap;
+    }
+    size_t free_cap() const{
+        return cap - size() -1 ;
+    }
+
+    bool full() const{
+        return (tail + 1) % cap == head;
+    }
+
+    bool empty() const{
+        return head == tail;
+    }
+};
+
+static void make_response(const string &resp, Ring_buf &out);
 static void msg(const char *fmt) {
     fprintf(stderr, "%s\n",fmt);
 }
@@ -21,6 +50,15 @@ static void die(const char *msg) {
     fprintf(stderr, "[%d] %s\n", err, msg);
     WSACleanup();
     exit(1);
+}
+
+static void hex_dump(const uint8_t* p, size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+        printf("%02X", p[i]);
+        if ((i + 1) % 16 == 0) printf("\n");
+        else printf(" ");
+    }
+    if (n % 16) printf("\n");
 }
 
 // 设置 socket 为非阻塞
@@ -38,16 +76,23 @@ struct Conn {
     bool want_read = true;
     bool want_write = false;
     bool want_close = false;
-    vector<uint8_t> incoming;
-    vector<uint8_t> outgoing;
+    // vector<uint8_t> incoming;
+    // vector<uint8_t> outgoing;
+    Ring_buf incoming;
+    Ring_buf outgoing;
 };
 
-static void buf_append(vector<uint8_t> &buf, const uint8_t *data, size_t n){
-    buf.insert(buf.end(), data, data + n);
+static bool buf_append(Ring_buf &buf, const uint8_t *data, size_t n){
+    if (n > buf.free_cap()) return false; // not enough space
+    size_t min = std::min(n,buf.cap - buf.tail);
+    memcpy(&buf.buf[buf.tail], data, min);
+    memcpy(&buf.buf[0], data + min, n - min);
+    buf.tail = (buf.tail + n) % buf.cap;
+    return true;
 }
 
-static void buf_consume(vector<uint8_t> &buf, size_t n){
-    buf.erase(buf.begin(), buf.begin() + n);
+static void buf_consume(Ring_buf &buf, size_t n){
+    buf.head = (buf.head + n) % buf.cap;
 }
 
 static Conn* handle_accept(SOCKET listen_fd) {
@@ -138,40 +183,55 @@ struct Response{
 
 static std::map<std::string,std::string> g_data;
 
-static void do_request(std::vector<std::string> &cmd,Response &out){
+static string do_request(std::vector<std::string> &cmd,Ring_buf &buf){
     if(cmd.size() == 2 && cmd[0] == "get"){
         auto it = g_data.find(cmd[1]);
         if(it == g_data.end()){
-            out.status = RES_NX;
-            return ;
+            buf.status = RES_NX;
+            return "0";
         }
         const std::string &val = it->second;
-        out.data.assign(val.begin(),val.end());
-        out.status = RES_OK;
+        // out.data.assign(val.begin(),val.end());
+        // make_response(val,buf);
+        buf.status = RES_OK;
+        return val;
     }else if(cmd.size() == 3 && cmd[0] == "set"){
         g_data[cmd[1]].swap(cmd[2]);
-        out.status = RES_OK;
+        buf.status = RES_OK;
     }else if(cmd.size() == 2 && cmd[0] == "del"){
         g_data.erase(cmd[1]);
-        out.status = RES_OK;
+        buf.status = RES_OK;
+        
     }else{
-        out.status = RES_ERR;
-
+        buf.status = RES_ERR;
+        
     }
-}
+    return "0";
+};
 
-static void make_response(const Response &resp, std::vector<uint8_t> &out){
-    uint32_t resp_len = 4 + (uint32_t)resp.data.size();
+static void make_response(const string &resp, Ring_buf &out){
+    uint32_t resp_len = 4 + (uint32_t)resp.size();
     buf_append(out,(const uint8_t*)&resp_len,4);
-    buf_append(out,(const uint8_t*)&resp.status,4);
-    buf_append(out,resp.data.data(),resp.data.size());
+    buf_append(out,(const uint8_t*)&out.status,4);
+    buf_append(out,(const uint8_t*)resp.data(),resp.size());
 }
 
 
 static bool try_one_requests(Conn* conn){
     if(conn->incoming.size() < 4) return false;
     uint32_t len = 0;
-    memcpy(&len, conn->incoming.data(), 4);
+
+    { // 头部可能被环形分割成两个部分
+    size_t  head = conn->incoming.head;
+    size_t first = std::min<size_t>(conn->incoming.cap-head,4);
+    uint8_t hdr[4];
+    memcpy(hdr,&conn->incoming.buf[head],first);
+    if(first < 4){
+        memcpy(&hdr[first],&conn->incoming.buf[0],4-first);
+    }
+    memcpy(&len,hdr,4);
+    }
+
 
     if(len > k_max_msg){
         msg("message too long");
@@ -180,28 +240,43 @@ static bool try_one_requests(Conn* conn){
     }
 
     if(4 + len > conn->incoming.size()) return false;
-    const uint8_t* request = &conn->incoming[4];
-    printf("client request: len: %u data: %.*x\n", len, (int)len, request);
+
+    std::vector<uint8_t> request(len);
+    size_t start = (conn->incoming.head + 4)%conn->incoming.cap;
+    size_t first = std::min<size_t>(len,conn->incoming.cap - start);
+    memcpy(request.data(),&conn->incoming.buf[start],first);
+    if(first < len){
+        memcpy(request.data() + first,&conn->incoming.buf[0],len - first);
+    }
+
+    printf("client request: len: %u \n", len, (int)len);
+    hex_dump(request.data(),len);
 
     std::vector<std::string> cmd;
-    if(parse_req(request, len, cmd)<0){
+    if(parse_req(request.data(), len, cmd)<0){
         msg("parse_req failed");
         conn->want_close = true;
         return false;
     }
 
-    Response resp;
-    do_request(cmd,resp);
-    make_response(resp,conn->outgoing);
+    // Response resp;
+    std::string s = do_request(cmd,conn->outgoing);
+    if(!s.empty()){
+        make_response(s,conn->outgoing);
+    }else{
+        std::string s = "Done!";
+        make_response(s,conn->outgoing);
+    }
+    // make_response(resp,conn->outgoing);
     buf_consume(conn->incoming,4+len);
 
     return true;
 }
 
-static void handle_write(Conn* conn){
-    if(conn->outgoing.empty()) return;
-
-    int rv = send(conn->fd, (const char*)conn->outgoing.data(), (int)conn->outgoing.size(), 0);
+static void send_all(Conn* conn,Ring_buf &buf){
+    size_t n = buf.size();
+    size_t min = std::min(n,buf.cap - buf.head);
+    int rv = send(conn->fd, (const char*)&buf.buf[buf.head],min,0);
     if(rv == SOCKET_ERROR){
         int err = WSAGetLastError();
         if(err == WSAEWOULDBLOCK) return;
@@ -209,8 +284,14 @@ static void handle_write(Conn* conn){
         conn->want_close = true;
         return;
     }
+    if(rv > 0) buf_consume(buf, (size_t)rv);
+}
 
-    buf_consume(conn->outgoing, rv);
+static void handle_write(Conn* conn){
+    if(conn->outgoing.empty()) return;
+
+    send_all(conn, conn->outgoing);
+    // buf_consume(conn->outgoing, rv);
     if(conn->outgoing.empty()){
         conn->want_read = true;
         conn->want_write = false;
