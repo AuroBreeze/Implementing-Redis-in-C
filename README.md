@@ -141,7 +141,6 @@ struct Ring_buf {
 - 非阻塞I/O和多路复用
 - 环形缓冲区内存优化
 - 性能提升和资源优化
-
 - Finished 1000 clients, success = 1000, time = 2.63774s
 
 ## 测试方法

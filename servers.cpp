@@ -249,8 +249,8 @@ static bool try_one_requests(Conn* conn){
         memcpy(request.data() + first,&conn->incoming.buf[0],len - first);
     }
 
-    printf("client request: len: %u \n", len, (int)len);
-    hex_dump(request.data(),len);
+    printf("client request: len: %u \n", len);
+    //hex_dump(request.data(),len);
 
     std::vector<std::string> cmd;
     if(parse_req(request.data(), len, cmd)<0){
