@@ -12,4 +12,4 @@ file(GLOB SRC_FILS
 add_executable(${PROJECT_NAME} ${SRC_FILS})
 
 # 链接 Windows 套接字库
-target_link_libraries(${PROJECT_NAME} PRIVATE lws2_32)
+target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
