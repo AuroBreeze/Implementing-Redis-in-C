@@ -1,4 +1,6 @@
 #pragma once
+#include <cstddef>   // for size_t
+#include <cstdint>   // for uint64_t
 
 struct HNode{
     HNode *next;

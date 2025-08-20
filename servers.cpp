@@ -8,8 +8,12 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+
+#include "hashtable.h"
 #pragma comment(lib, "ws2_32.lib")
 
+#define container_of(ptr,T,member) \
+    ((T*)( (char*)ptr - offsetof(T,member) ))
 using namespace std;
 
 
@@ -181,32 +185,92 @@ struct Response{
     std::vector<uint8_t> data;
 };
 
-static std::map<std::string,std::string> g_data;
+static struct {
+    HMap db;
+}g_data;
+
+struct Entry{
+    struct HNode node; // hashtable node
+    std::string key;
+    std::string val;
+};
+
+static bool entry_eq(HNode* lhs, HNode* rhs){
+    struct Entry* le = container_of(lhs,struct Entry, node);
+    struct Entry* re = container_of(rhs,struct Entry, node);
+    return le->key == re->key;
+}
+// static std::map<std::string,std::string> g_data;
+
+
+// FNV hash
+static uint64_t str_hash(const uint8_t* data, size_t len){
+    uint32_t h = 0x811c9dc5;
+    for(size_t i=0; i<len; i++){
+        h = (h+data[i]) * 0x01000193;
+    }
+    return h;
+}
+
+static const std::string* do_get(std::vector<std::string> &cmd, Ring_buf &buf){
+    Entry key;
+    key.key.swap(cmd[1]);
+    key.node.hcode = str_hash((const uint8_t*) key.key.data(), key.key.size());
+    //hashtable lookup
+    HNode* node = hm_lookup(&g_data.db,&key.node,&entry_eq);
+    if(!node){
+        buf.status = RES_NX;
+        return nullptr;
+    }
+    const std::string* val = &container_of(node,Entry,node)->val;
+    return val;
+}
+
+static void do_set(std::vector<std::string> &cmd){
+    Entry key;
+    key.key.swap(cmd[1]);
+    key.node.hcode = str_hash((const uint8_t*)key.key.data(),key.key.size());
+
+    HNode *node = hm_lookup(&g_data.db,&key.node,&entry_eq);
+    if(node){
+        container_of(node,Entry,node)->val.swap(cmd[2]);
+    }else{
+        Entry *ent = new Entry();
+        ent->key.swap(key.key);
+        ent->node.hcode = key.node.hcode;
+        ent->val.swap(cmd[2]);
+        hm_insert(&g_data.db,&ent->node);
+    }
+}
+
+static void do_del(std::vector<std::string> &cmd) {
+    // a dummy `Entry` just for the lookup
+    Entry key;
+    key.key.swap(cmd[1]);
+    key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
+    // hashtable delete
+    HNode *node = hm_delete(&g_data.db, &key.node, &entry_eq);
+    if (node) { // deallocate the pair
+        delete container_of(node, Entry, node);
+    }
+}
+
 
 static string do_request(std::vector<std::string> &cmd,Ring_buf &buf){
     if(cmd.size() == 2 && cmd[0] == "get"){
-        auto it = g_data.find(cmd[1]);
-        if(it == g_data.end()){
-            buf.status = RES_NX;
-            return "0";
-        }
-        const std::string &val = it->second;
-        // out.data.assign(val.begin(),val.end());
-        // make_response(val,buf);
-        buf.status = RES_OK;
-        return val;
+        const std::string* s = do_get(cmd,buf);
+        if(s == nullptr) return "nil";
+        return s->data();
     }else if(cmd.size() == 3 && cmd[0] == "set"){
-        g_data[cmd[1]].swap(cmd[2]);
-        buf.status = RES_OK;
+        do_set(cmd);
+
     }else if(cmd.size() == 2 && cmd[0] == "del"){
-        g_data.erase(cmd[1]);
-        buf.status = RES_OK;
-        
+        do_del(cmd);
     }else{
         buf.status = RES_ERR;
         
     }
-    return "0";
+    return "Done";
 };
 
 static void make_response(const string &resp, Ring_buf &out){

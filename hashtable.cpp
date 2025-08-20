@@ -1,6 +1,8 @@
 #include "hashtable.h"
 #include <cassert>
 #include <cstdlib>
+#include <cstddef>   // for size_t
+#include <cstdint>   // for uint64_t
 
 static void h_init(HTab* htab, size_t n){ // n must be power of 2
     assert(n > 0 && ((n-1) & n) == 0);
@@ -19,7 +21,7 @@ static void h_insert(HTab* htab,HNode* node){
 
 static HNode* *h_lookup(HTab* htab, HNode* key, bool (*eq)(HNode* , HNode*)){
     if(!htab->tab) return nullptr;
-    size_t pos = key.hcode & htab->mask;
+    size_t pos = key->hcode & htab->mask;
     HNode* *from = &htab->tab[pos];
     for(HNode* cur;(cur = *from) != nullptr;from = &cur->next){
         if(cur->hcode == key->hcode && eq(cur,key)) return from;
@@ -95,10 +97,10 @@ void hm_insert(HMap* hmap,HNode* node){
 
 HNode* hm_delete(HMap* hmap,HNode* key,bool (*eq)(HNode* , HNode*)){
     hm_help_rehashing(hmap);
-    if(HNode* *from = h_lookup(&hmap->newer.tab,key,eq)){
+    if(HNode* *from = h_lookup(&hmap->newer,key,eq)){
         return h_detach(&hmap->newer,from);
     }
-    if(HNode* *from = h_lookup(&hmap->older.tab,key,eq)){
+    if(HNode* *from = h_lookup(&hmap->older,key,eq)){
         return h_detach(&hmap->older,from);
     }
     return nullptr;

@@ -6,7 +6,6 @@
 #include <string>
 #pragma comment(lib, "ws2_32.lib")
 
-
 static void msg(const char* msg){
     fprintf(stderr, "%s\n", msg);
 }
