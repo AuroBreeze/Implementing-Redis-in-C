@@ -10,6 +10,7 @@
 - ✅ **内存优化**: 环形缓冲区 (Ring Buffer) 实现零拷贝优化
 - ✅ **多客户端支持**: 支持多个客户端同时连接
 - ✅ **自定义协议**: 二进制协议格式，前4字节表示消息长度
+- ✅ **自定义哈希表**: 渐进式rehash的高性能哈希表实现
 
 ## 项目结构
 
@@ -19,13 +20,19 @@
 ├── servers.cpp         # Redis服务器实现（包含环形缓冲区优化）
 ├── server_test.cpp     # 服务器压力测试代码
 ├── test.cpp           # 环形缓冲区测试代码
+├── hashtable.h        # 自定义哈希表头文件
+├── hashtable.cpp      # 自定义哈希表实现
 ├── .gitignore         # Git忽略文件
 └── study/             # 学习版本目录
     ├── basic_1/       # 基础版本实现
     │   ├── cpp/       # 源代码
     │   ├── exe/       # 可执行文件
     │   └── md/        # 文档
-    └── baisc_2/       # 优化版本实现（带环形缓冲区）
+    ├── baisc_2/       # 优化版本实现（带环形缓冲区）
+    │   ├── cpp/       # 源代码
+    │   ├── exe/       # 可执行文件
+    │   └── md/        # 文档
+    └── dev_1/         # 开发版本（自定义哈希表）
         ├── cpp/       # 源代码
         ├── exe/       # 可执行文件
         └── md/        # 文档
@@ -123,6 +130,33 @@ struct Ring_buf {
 - ✅ 避免内存碎片
 - ✅ 线程安全的数据交换
 
+### 自定义哈希表设计
+
+```cpp
+struct HNode {
+    HNode *next;
+    uint64_t hcode = 0;
+};
+
+struct HTab {
+    HNode* *tab = nullptr;
+    size_t mask = 0;
+    size_t size = 0;
+};
+
+struct HMap {
+    HTab newer;
+    HTab older;
+    size_t migrate_pos = 0;
+};
+```
+
+哈希表特性：
+- ✅ **渐进式rehash**: 避免一次性rehash导致的性能抖动
+- ✅ **FNV哈希算法**: 提供良好的键分布性
+- ✅ **内存效率**: 手动内存管理减少碎片
+- ✅ **线程安全**: 支持并发访问（需要外部同步）
+
 ## 性能特性
 
 - **高并发**: 支持数千个并发连接
@@ -137,11 +171,19 @@ struct Ring_buf {
 - 简单的阻塞I/O模型
 - 基础命令实现
 - Finished 1000 clients, success = 993, time = 2.81091s
+
 ### 优化版本 (baisc_2) 
 - 非阻塞I/O和多路复用
 - 环形缓冲区内存优化
 - 性能提升和资源优化
 - Finished 1000 clients, success = 1000, time = 2.63774s
+
+### 开发版本 (dev_1)
+- 自定义哈希表实现，替代std::map
+- 渐进式rehash机制，避免性能抖动
+- FNV哈希算法，提供更好的分布性
+- 内存管理优化，减少内存碎片
+- Finished 1000 clients, success = 1000, time = 2.73649s
 
 ## 测试方法
 
