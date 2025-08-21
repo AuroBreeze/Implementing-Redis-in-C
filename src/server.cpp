@@ -25,7 +25,7 @@ struct Ring_buf{
     size_t cap;
     size_t status;
 
-    Ring_buf():buf(256),head(0),tail(0),cap(256){
+    Ring_buf():buf(1024),head(0),tail(0),cap(1024){
     }
 
     size_t size() const{
@@ -86,13 +86,12 @@ struct Conn {
     Ring_buf outgoing;
 };
 
-static bool buf_append(Ring_buf &buf, const uint8_t *data, size_t n){
-    if (n > buf.free_cap()) return false; // not enough space
+static void buf_append(Ring_buf &buf, const uint8_t *data, size_t n){
+    if (n > buf.free_cap()) return;
     size_t min = std::min(n,buf.cap - buf.tail);
     memcpy(&buf.buf[buf.tail], data, min);
     memcpy(&buf.buf[0], data + min, n - min);
     buf.tail = (buf.tail + n) % buf.cap;
-    return true;
 }
 
 static void buf_consume(Ring_buf &buf, size_t n){
@@ -146,7 +145,7 @@ static bool read_str(const uint8_t* &cur, const uint8_t* end, size_t n,std::stri
     return true;
 }
 
-
+//不再使用
 // +-----+------+-----+------+-----+------+-----+-----+------+
 // | len | nstr | len | str1 | len | str2 | ... | len | strn |
 // +-----+------+-----+------+-----+------+-----+-----+------+
@@ -170,6 +169,74 @@ static int32_t parse_req(const uint8_t* data, size_t size,std::vector<std::strin
     return 0;
 }
 
+enum {
+    ERR_UNKNOWN = 1, // unknown command
+    ERR_TOO_BIG = 2  // response too big
+};
+
+enum{
+    TAG_NIL = 0,    // nil
+    TAG_ERR = 1,    // error code + msg
+    TAG_STR = 2,    // string
+    TAG_INT = 3,    // int64
+    TAG_DBL = 4,    // double
+    TAG_ARR = 5,    // array
+};
+//  nil       int64           str                   array
+// ┌─────┐   ┌─────┬─────┐   ┌─────┬─────┬─────┐   ┌─────┬─────┬─────┐
+// │ tag │   │ tag │ int │   │ tag │ len │ ... │   │ tag │ len │ ... │
+// └─────┘   └─────┴─────┘   └─────┴─────┴─────┘   └─────┴─────┴─────┘
+//    1B        1B    8B        1B    4B   ...        1B    4B   ...
+
+static void buf_append_u8(Ring_buf& buf, uint8_t data){
+    buf_append(buf, (const uint8_t*)&data, sizeof(data));
+}
+
+static void buf_append_u32(Ring_buf& buf, uint32_t data){
+    buf_append(buf, (const uint8_t*)&data, 4);
+}
+
+static void buf_append_i64(Ring_buf& buf, int64_t data){
+    buf_append(buf, (const uint8_t*)&data, 8);
+}
+
+static void buf_append_dbl(Ring_buf& buf, double data){
+    buf_append(buf, (const uint8_t*)&data, 8);
+}
+
+
+static void out_nil(Ring_buf& buf){
+    buf_append_u8(buf, TAG_NIL);
+}
+
+static void out_str(Ring_buf& buf, const char* s, size_t size){
+    buf_append_u8(buf, TAG_STR);
+    buf_append_u32(buf, (uint32_t)size);
+    buf_append(buf, (const uint8_t*)s, size);
+}
+
+static void out_int(Ring_buf& buf, int64_t val){
+    buf_append_u8(buf, TAG_INT);
+    buf_append_i64(buf, val);
+}
+
+static void out_dbl(Ring_buf& buf, double val){
+    buf_append_u8(buf, TAG_DBL);
+    buf_append_dbl(buf, val);
+}
+
+static void out_err(Ring_buf& buf, uint32_t code, const std::string &msg){
+    buf_append_u8(buf, TAG_ERR);
+    buf_append_u32(buf, code);
+    buf_append_u32(buf, (uint32_t)msg.size());
+    buf_append(buf, (const uint8_t*)msg.data(), msg.size());
+}
+
+static void out_arr(Ring_buf& buf, uint32_t n){
+    buf_append_u8(buf, TAG_ARR);
+    buf_append_u32(buf, n);
+}
+
 enum{
     RES_OK = 0,
     RES_ERR = 1, // error
@@ -180,10 +247,6 @@ enum{
 // | status | data... |
 // +--------+---------+
 
-struct Response{
-    uint32_t status;
-    std::vector<uint8_t> data;
-};
 
 static struct {
     HMap db;
@@ -212,21 +275,21 @@ static uint64_t str_hash(const uint8_t* data, size_t len){
     return h;
 }
 
-static const std::string* do_get(std::vector<std::string> &cmd, Ring_buf &buf){
+static void do_get(std::vector<std::string> &cmd, Ring_buf &buf){
     Entry key;
     key.key.swap(cmd[1]);
     key.node.hcode = str_hash((const uint8_t*) key.key.data(), key.key.size());
     //hashtable lookup
     HNode* node = hm_lookup(&g_data.db,&key.node,&entry_eq);
     if(!node){
-        buf.status = RES_NX;
-        return nullptr;
+        out_nil(buf);
+        return;
     }
     const std::string* val = &container_of(node,Entry,node)->val;
-    return val;
+    out_str(buf, val->data(), val->size());
 }
 
-static void do_set(std::vector<std::string> &cmd){
+static void do_set(std::vector<std::string> &cmd, Ring_buf& buf){
     Entry key;
     key.key.swap(cmd[1]);
     key.node.hcode = str_hash((const uint8_t*)key.key.data(),key.key.size());
@@ -241,9 +304,11 @@ static void do_set(std::vector<std::string> &cmd){
         ent->val.swap(cmd[2]);
         hm_insert(&g_data.db,&ent->node);
     }
+
+    out_nil(buf);
 }
 
-static void do_del(std::vector<std::string> &cmd) {
+static void do_del(std::vector<std::string> &cmd, Ring_buf& buf) {
     // a dummy `Entry` just for the lookup
     Entry key;
     key.key.swap(cmd[1]);
@@ -253,31 +318,54 @@ static void do_del(std::vector<std::string> &cmd) {
     if (node) { // deallocate the pair
         delete container_of(node, Entry, node);
     }
+
+    out_int(buf, node ? 1 : 0);
+}
+
+static bool cb_keys(HNode* node, void* arg){
+    Ring_buf &buf = *(Ring_buf*)arg;
+    const std::string& key = container_of(node, Entry, node)->key;
+    out_str(buf, key.data(), key.size());
+    return true;
+}
+
+static void do_keys(std::vector<string>&, Ring_buf &buf){
+    out_arr(buf, (uint32_t)hm_size(&g_data.db));
+    hm_foreach(&g_data.db, &cb_keys, (void*)&buf);
 }
 
 
-static string do_request(std::vector<std::string> &cmd,Ring_buf &buf){
+static void do_request(std::vector<std::string> &cmd,Ring_buf &buf){
     if(cmd.size() == 2 && cmd[0] == "get"){
-        const std::string* s = do_get(cmd,buf);
-        if(s == nullptr) return "nil";
-        return s->data();
+        do_get(cmd, buf);
     }else if(cmd.size() == 3 && cmd[0] == "set"){
-        do_set(cmd);
-
+        do_set(cmd, buf);
     }else if(cmd.size() == 2 && cmd[0] == "del"){
-        do_del(cmd);
+        do_del(cmd, buf);
+    }else if(cmd.size() == 1 && cmd[0] == "keys"){
+        do_keys(cmd, buf);
     }else{
-        buf.status = RES_ERR;
-        
+        out_err(buf, ERR_UNKNOWN, "unknown command.");    
     }
-    return "Done";
 };
 
-static void make_response(const string &resp, Ring_buf &out){
-    uint32_t resp_len = 4 + (uint32_t)resp.size();
-    buf_append(out,(const uint8_t*)&resp_len,4);
-    buf_append(out,(const uint8_t*)&out.status,4);
-    buf_append(out,(const uint8_t*)resp.data(),resp.size());
+static void response_begin(Ring_buf& buf, size_t *header){
+    *header = buf.size(); // message header position
+    buf_append_u32(buf, 0);
+}
+
+static size_t response_size(Ring_buf& buf, size_t header){
+    return buf.size() - header - 4;
+}
+
+static void response_end(Ring_buf& buf, size_t header){
+    size_t msg_size = response_size(buf, header);
+    if(msg_size > k_max_msg){
+        out_err(buf, ERR_TOO_BIG, "response too big");
+        msg_size = response_size(buf, header);
+    }
+    uint32_t len = (uint32_t)msg_size;
+    buf_append(buf, (const uint8_t*)&len, sizeof(len));
 }
 
 
@@ -323,14 +411,13 @@ static bool try_one_requests(Conn* conn){
         return false;
     }
 
-    // Response resp;
-    std::string s = do_request(cmd,conn->outgoing);
-    if(!s.empty()){
-        make_response(s,conn->outgoing);
-    }else{
-        std::string s = "Done!";
-        make_response(s,conn->outgoing);
-    }
+    // Response
+    size_t header_pos = 0;
+    response_begin(conn->outgoing, &header_pos);
+    do_request(cmd, conn->outgoing);
+    response_end(conn->outgoing, header_pos);
+
+
     // make_response(resp,conn->outgoing);
     buf_consume(conn->incoming,4+len);
 
