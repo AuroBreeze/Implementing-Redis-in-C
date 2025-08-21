@@ -2,33 +2,10 @@
 #include <vector>
 using namespace std;
 
-struct Ring_buf{
-    std::vector<uint8_t> buf;
-    size_t head;
-    size_t tail;
-    size_t cap;
-
-    Ring_buf():buf(1024),head(0),tail(0),cap(1024){
-    }
-
-    size_t size() const{
-        return (cap + tail - head) % cap;
-    }
-    size_t free_cap() const{
-        return cap - size() -1 ;
-    }
-
-    bool full() const{
-        return (tail + 1) % cap == head;
-    }
-
-    bool empty() const{
-        return head == tail;
-    }
-}
-
 int main() {
-    // int a = 10;
+    int a = 10;
+    int* p = &a;
+    cout << "p (value of a): " << p << endl;
     // int p = *&a;      // 普通整数
     // int* n = &a;      // 指针，存的是 a 的地址
 
