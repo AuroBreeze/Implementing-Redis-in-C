@@ -2,15 +2,18 @@ cmake_minimum_required(VERSION 4.1.0)
 
 project(C_redis_server)
 
-set(CMAKE_BUILD_TYPE Debug)
+
 
 # 设置所有可执行文件输出到 bin 目录
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/build/Debug")
 
 file(GLOB SRC_FILS
-    ${PROJECT_SOURCE_DIR}/src/*.cpp
-    ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/server.cpp
+    ${PROJECT_SOURCE_DIR}/src/hashtable.h
+    ${PROJECT_SOURCE_DIR}/src/hashtable.cpp
 )
+
+set(CMAKE_BUILD_TYPE Debug)
 
 add_executable(server ${SRC_FILS})
 
