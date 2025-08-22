@@ -42,6 +42,11 @@ struct Ring_buf{
     bool empty() const{
         return head == tail;
     }
+
+    bool clear(){
+        head = tail;
+        return true;
+    }
 };
 
 static void make_response(const string &resp, Ring_buf &out);
@@ -73,7 +78,7 @@ static void fd_set_nb(SOCKET fd){
     }
 }
 
-const size_t k_max_msg = 32 << 20;
+const size_t k_max_msg = 4096;
 
 struct Conn {
     SOCKET fd;
@@ -359,13 +364,15 @@ static size_t response_size(Ring_buf& buf, size_t header){
 }
 
 static void response_end(Ring_buf& buf, size_t header){
+    //TODO : 内存分配有问题，需要处理
     size_t msg_size = response_size(buf, header);
     if(msg_size > k_max_msg){
         out_err(buf, ERR_TOO_BIG, "response too big");
         msg_size = response_size(buf, header);
     }
     uint32_t len = (uint32_t)msg_size;
-    buf_append(buf, (const uint8_t*)&len, sizeof(len));
+    // buf_append(buf, (const uint8_t*)&len, sizeof(len));
+    memcpy(&buf.buf[header], &len, 4);
 }
 
 
@@ -402,7 +409,7 @@ static bool try_one_requests(Conn* conn){
     }
 
     printf("client request: len: %u \n", len);
-    //hex_dump(request.data(),len);
+    hex_dump(request.data(),len);
 
     std::vector<std::string> cmd;
     if(parse_req(request.data(), len, cmd)<0){
@@ -418,6 +425,7 @@ static bool try_one_requests(Conn* conn){
     response_end(conn->outgoing, header_pos);
 
 
+
     // make_response(resp,conn->outgoing);
     buf_consume(conn->incoming,4+len);
 
@@ -427,6 +435,7 @@ static bool try_one_requests(Conn* conn){
 static void send_all(Conn* conn,Ring_buf &buf){
     size_t n = buf.size();
     size_t min = std::min(n,buf.cap - buf.head);
+    cout <<" size: " << n << endl; 
     int rv = send(conn->fd, (const char*)&buf.buf[buf.head],min,0);
     if(rv == SOCKET_ERROR){
         int err = WSAGetLastError();

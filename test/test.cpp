@@ -2,10 +2,43 @@
 #include <vector>
 using namespace std;
 
+
+struct mode{
+    int n = 3;
+    int arr[2] = {0,1};
+ } ;
+
+static void qwe(std::string& s, mode* mode_1){
+    s += "2345";
+    cout << s << endl;
+    cout<< "struct qwe: " <<mode_1->n <<endl;
+    cout<< "struct qwe: " <<&mode_1->arr << endl;
+}
+
+static void send(std::string& s, mode& mode_1){
+    s += "123";
+    cout << s << endl;
+    cout << &s << endl;
+    qwe(s,&mode_1); // 这个对还是错？
+
+    cout << "struct send: " << &mode_1 << endl;
+    mode_1.n = 0;
+}
+
+
 int main() {
     int a = 10;
     int* p = &a;
     cout << "p (value of a): " << p << endl;
+    std::string s = "123";
+    cout << s << endl;
+    mode mode_1;
+    send(s,mode_1);
+
+    cout << mode_1.n << endl;
+
+    uint32_t len =1 ;
+    cout << sizeof(len) << endl;
     // int p = *&a;      // 普通整数
     // int* n = &a;      // 指针，存的是 a 的地址
 

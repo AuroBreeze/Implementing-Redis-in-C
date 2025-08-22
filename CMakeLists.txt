@@ -5,7 +5,7 @@ project(C_redis_server)
 
 
 # 设置所有可执行文件输出到 bin 目录
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/build/Debug")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
 file(GLOB SRC_FILS
     ${PROJECT_SOURCE_DIR}/src/server.cpp
