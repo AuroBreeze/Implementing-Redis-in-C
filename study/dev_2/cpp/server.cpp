@@ -49,7 +49,7 @@ struct Ring_buf{
     }
 };
 
-static void make_response(const string &resp, Ring_buf &out);
+
 static void msg(const char *fmt) {
     fprintf(stderr, "%s\n",fmt);
 }
@@ -231,7 +231,6 @@ static void out_dbl(Ring_buf& buf, double val){
 }
 
 static void out_err(Ring_buf& buf, uint32_t code, const std::string &msg){
-    buf_append_u32(buf, 0);
     buf_append_u8(buf, TAG_ERR);
     buf_append_u32(buf, code);
     buf_append_u32(buf, (uint32_t)msg.size());
@@ -365,16 +364,15 @@ static size_t response_size(Ring_buf& buf, size_t header){
 }
 
 static void response_end(Ring_buf& buf, size_t header){
-    // TODO : 内存分配有问题，需要处理
     size_t msg_size = response_size(buf, header);
     if(msg_size > k_max_msg){
-        buf.clear();
+        buf.tail = (buf.tail + buf.cap - msg_size) % buf.cap ;
         out_err(buf, ERR_TOO_BIG, "response too big");
         msg_size = response_size(buf, header);
     }
     uint32_t len = (uint32_t)msg_size;
     // buf_append(buf, (const uint8_t*)&len, sizeof(len));
-    memcpy(&buf.buf[header], &len, 4);
+    memcpy(&buf.buf[(buf.head+header)%buf.cap], &len, 4);
 }
 
 
