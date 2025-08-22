@@ -231,6 +231,7 @@ static void out_dbl(Ring_buf& buf, double val){
 }
 
 static void out_err(Ring_buf& buf, uint32_t code, const std::string &msg){
+    buf_append_u32(buf, 0);
     buf_append_u8(buf, TAG_ERR);
     buf_append_u32(buf, code);
     buf_append_u32(buf, (uint32_t)msg.size());
@@ -364,9 +365,10 @@ static size_t response_size(Ring_buf& buf, size_t header){
 }
 
 static void response_end(Ring_buf& buf, size_t header){
-    //TODO : 内存分配有问题，需要处理
+    // TODO : 内存分配有问题，需要处理
     size_t msg_size = response_size(buf, header);
     if(msg_size > k_max_msg){
+        buf.clear();
         out_err(buf, ERR_TOO_BIG, "response too big");
         msg_size = response_size(buf, header);
     }
@@ -409,7 +411,7 @@ static bool try_one_requests(Conn* conn){
     }
 
     printf("client request: len: %u \n", len);
-    hex_dump(request.data(),len);
+    // hex_dump(request.data(),len);
 
     std::vector<std::string> cmd;
     if(parse_req(request.data(), len, cmd)<0){
@@ -435,7 +437,7 @@ static bool try_one_requests(Conn* conn){
 static void send_all(Conn* conn,Ring_buf &buf){
     size_t n = buf.size();
     size_t min = std::min(n,buf.cap - buf.head);
-    cout <<" size: " << n << endl; 
+    //cout <<" size: " << n << endl; 
     int rv = send(conn->fd, (const char*)&buf.buf[buf.head],min,0);
     if(rv == SOCKET_ERROR){
         int err = WSAGetLastError();
