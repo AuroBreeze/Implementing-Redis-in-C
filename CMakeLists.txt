@@ -26,4 +26,6 @@ target_link_libraries(client PRIVATE ws2_32)
 add_executable(server_test ${PROJECT_SOURCE_DIR}/test/server_test.cpp)
 target_link_libraries(server_test PRIVATE ws2_32)
 
+add_executable(test_avl ${PROJECT_SOURCE_DIR}/src/test_avl.cpp ${PROJECT_SOURCE_DIR}/src/avl.cpp)
+
 
