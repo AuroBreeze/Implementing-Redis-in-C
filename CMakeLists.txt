@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 4.1.0)
-
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(C_redis_server)
-
-
 
 # 设置所有可执行文件输出到 bin 目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
