@@ -4,6 +4,7 @@
 #include <cassert>
 #include <vector>
 #include <string>
+#include <cstdint>
 #pragma comment(lib, "ws2_32.lib")
 
 static void msg(const char* msg){
