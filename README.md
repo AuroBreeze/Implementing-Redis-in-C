@@ -4,32 +4,54 @@
 
 ## 功能特性
 
-- ✅ **基本命令支持**: SET, GET, DEL, KEYS 操作
-- ✅ **网络通信**: 基于Windows Socket API的客户端-服务器架构
+### 核心功能
+- ✅ **键值操作**: SET, GET, DEL, KEYS 命令
+- ✅ **有序集合**: ZADD, ZREM, ZSCORE, ZQUERY 命令
+- ✅ **数据类型**: 字符串、整数、浮点数、数组、nil、错误等多种类型
+
+### 网络与性能
+- ✅ **网络架构**: 基于Windows Socket API的客户端-服务器模型
 - ✅ **高性能I/O**: 非阻塞I/O和多路复用 (WSAPoll)
-- ✅ **内存优化**: 环形缓冲区 (Ring Buffer) 实现零拷贝优化
-- ✅ **多客户端支持**: 支持多个客户端同时连接
-- ✅ **自定义协议**: 二进制协议格式，前4字节表示消息长度
-- ✅ **TLV响应格式**: Type-Length-Value二进制响应协议，支持多种数据类型
-- ✅ **自定义哈希表**: 渐进式rehash的高性能哈希表实现
-- ✅ **数据类型丰富**: 支持字符串、整数、浮点数、数组、nil、错误等多种数据类型
+- ✅ **内存优化**: 环形缓冲区实现零拷贝，减少内存碎片
+- ✅ **并发支持**: 支持多客户端同时连接
+
+### 数据结构
+- ✅ **自定义哈希表**: 渐进式rehash，FNV哈希算法
+- ✅ **AVL平衡树**: 用于有序集合排序，自动平衡维护
+- ✅ **双索引结构**: AVL树按(score, name)排序 + 哈希表按name索引
+
+### 协议格式
+- ✅ **二进制协议**: 前4字节长度字段 + 变长参数
+- ✅ **TLV响应**: Type-Length-Value格式，支持多种数据类型
 
 ## 项目结构
 
 ```
 .
-├── client.cpp          # Redis客户端实现
-├── servers.cpp         # Redis服务器实现（包含环形缓冲区优化）
-├── server_test.cpp     # 服务器压力测试代码
-├── test.cpp           # 环形缓冲区测试代码
-├── hashtable.h        # 自定义哈希表头文件
-├── hashtable.cpp      # 自定义哈希表实现
+├── src/
+│   ├── server.cpp     # Redis服务器主程序
+│   ├── hashtable.h    # 自定义哈希表头文件
+│   ├── hashtable.cpp  # 自定义哈希表实现
+│   ├── avl.h          # AVL树头文件
+│   ├── avl.cpp        # AVL树实现
+│   ├── zset.h         # 有序集合头文件
+│   ├── zset.cpp       # 有序集合实现
+│   ├── common.h       # 公共定义和工具函数
+│   ├── test_avl.cpp   # AVL树测试程序
+│   └── test_offset.cpp # AVL树偏移测试程序
+├── test/
+│   ├── client.cpp     # Redis客户端实现
+│   ├── server_test.cpp # 服务器压力测试代码
+│   └── test.cpp       # 环形缓冲区测试代码
+├── CMakeLists.txt     # CMake构建配置
 ├── .gitignore         # Git忽略文件
 └── study/             # 学习版本目录
     ├── basic_1/       # 基础版本实现
     ├── baisc_2/       # 优化版本实现（带环形缓冲区）
     ├── dev_1/         # 开发版本1（自定义哈希表）
-    └── dev_2/         # 开发版本2（自定义TLV实现）
+    ├── dev_2/         # 开发版本2（自定义TLV实现）
+    ├── dev_3/         # 开发版本3（AVL树实现）
+    └── dev_4/         # 开发版本4（有序集合实现）
 ```
 
 ## 编译方法
@@ -59,7 +81,7 @@ cmake --build . --target server_test # 只编译服务器测试程序
 
 ```bash
 # 编译服务器
-g++ -std=c++17 -o server src/server.cpp src/hashtable.cpp src/hashtable.h -lws2_32
+g++ -std=c++17 -o server src/server.cpp src/hashtable.cpp src/avl.cpp src/zset.cpp -lws2_32
 
 # 编译客户端
 g++ -std=c++17 -o client test/client.cpp -lws2_32
@@ -69,6 +91,12 @@ g++ -std=c++17 -o server_test test/server_test.cpp -lws2_32
 
 # 编译环形缓冲区测试程序
 g++ -std=c++17 -o test test/test.cpp
+
+# 编译AVL树测试程序
+g++ -std=c++17 -o test_avl src/test_avl.cpp src/avl.cpp
+
+# 编译偏移测试程序
+g++ -std=c++17 -o test_offset src/test_offset.cpp src/avl.cpp
 ```
 
 ## 使用方法
@@ -90,6 +118,18 @@ g++ -std=c++17 -o test test/test.cpp
 
 # DEL 操作
 ./client del key
+
+# ZADD 操作 (有序集合)
+./client zadd zset 1.0 member1
+
+# ZREM 操作 (有序集合)
+./client zrem zset member1
+
+# ZSCORE 操作 (有序集合)
+./client zscore zset member1
+
+# ZQUERY 操作 (有序集合)
+./client zquery zset 1.0 "" 0 10
 ```
 
 ### 压力测试
@@ -131,17 +171,17 @@ dev_2版本引入了TLV格式的响应协议：
 - `TAG_DBL` (4): 双精度浮点数 - 1字节类型 + 8字节浮点值
 - `TAG_ARR` (5): 数组类型 - 1字节类型 + 4字节数组长度 + 数组元素
 
-## 架构设计
+## 核心架构
 
 ### 服务器架构
-
 1. **主循环**: 使用WSAPoll进行多路复用
-2. **连接管理**: 非阻塞accept和处理客户端连接
+2. **连接管理**: 非阻塞accept和处理客户端连接  
 3. **请求处理**: 解析协议格式，执行相应命令
 4. **响应发送**: 构建响应消息并发送给客户端
 
-### 环形缓冲区优化
+### 数据结构设计
 
+#### 环形缓冲区
 ```cpp
 struct Ring_buf {
     std::vector<uint8_t> buf;  // 缓冲区
@@ -151,15 +191,12 @@ struct Ring_buf {
     size_t status;             // 状态标志
 };
 ```
-
-环形缓冲区提供了：
 - ✅ 零拷贝数据访问
 - ✅ 高效的内存利用率
 - ✅ 避免内存碎片
 - ✅ 线程安全的数据交换
 
-### 自定义哈希表设计
-
+#### 自定义哈希表
 ```cpp
 struct HNode {
     HNode *next;
@@ -178,53 +215,68 @@ struct HMap {
     size_t migrate_pos = 0;
 };
 ```
-
-哈希表特性：
 - ✅ **渐进式rehash**: 避免一次性rehash导致的性能抖动
 - ✅ **FNV哈希算法**: 提供良好的键分布性
 - ✅ **内存效率**: 手动内存管理减少碎片
-- ✅ **线程安全**: 支持并发访问（需要外部同步）
 
-## 性能特性
+#### 有序集合 (ZSet)
+```cpp
+struct ZSet {
+    AVLNode* root = nullptr; // 按(score, name)排序
+    HMap hmap;               // 按name索引
+};
 
-- **高并发**: 支持数千个并发连接
-- **低延迟**: 非阻塞I/O减少等待时间
-- **高吞吐**: 环形缓冲区优化数据读写
-- **内存高效**: 避免不必要的内存拷贝
+struct ZNode {
+    AVLNode tree;           // AVL树节点
+    HNode hmap;             // 哈希表节点  
+    double score = 0;
+    size_t len = 0;
+    char name[0];           // 灵活数组
+};
+```
+- ✅ **双索引结构**: AVL树 + 哈希表双重索引
+- ✅ **高效查询**: O(log N)时间复杂度操作
+- ✅ **内存优化**: 灵活数组存储成员名称
 
-## 开发版本
+## 性能优化
+
+- **高并发**: 支持数千个并发连接，非阻塞I/O架构
+- **低延迟**: WSAPoll多路复用减少等待时间
+- **高吞吐**: 环形缓冲区零拷贝优化数据读写
+- **内存高效**: 渐进式rehash避免内存碎片，灵活数组优化存储
+
+## 版本演进
 
 ### 基础版本 (basic_1)
-- 基本的客户端-服务器架构
-- 简单的阻塞I/O模型
-- 基础命令实现
-- Finished 1000 clients, success = 993, time = 2.81091s
+- **架构**: 基本的客户端-服务器模型，阻塞I/O
+- **功能**: SET, GET, DEL, KEYS基础命令
+- **性能**: Finished 1000 clients, success = 993, time = 2.81091s
 
-### 优化版本 (baisc_2) 
-- 非阻塞I/O和多路复用
-- 环形缓冲区内存优化
-- 性能提升和资源优化
-- Finished 1000 clients, success = 1000, time = 2.63774s
+### 优化版本 (baisc_2)
+- **优化**: 非阻塞I/O + WSAPoll多路复用
+- **内存**: 环形缓冲区零拷贝优化
+- **性能**: Finished 1000 clients, success = 1000, time = 2.63774s
 
-### 开发版本 (dev_1)
-- 自定义哈希表实现，替代std::map
-- 渐进式rehash机制，避免性能抖动
-- FNV哈希算法，提供更好的分布性
-- 内存管理优化，减少内存碎片
-- Finished 1000 clients, success = 1000, time = 2.73649s
+### 开发版本1 (dev_1)
+- **数据结构**: 自定义哈希表替代std::map
+- **算法**: 渐进式rehash + FNV哈希算法
+- **性能**: Finished 1000 clients, success = 1000, time = 2.73649s
 
 ### 开发版本2 (dev_2)
-- **TLV (Type-Length-Value) 协议格式**: 实现了完整的二进制TLV响应格式
-- **多种数据类型支持**:
-  - `TAG_NIL` (0): nil值
-  - `TAG_ERR` (1): 错误代码和消息
-  - `TAG_STR` (2): 字符串类型
-  - `TAG_INT` (3): 64位整数
-  - `TAG_DBL` (4): 双精度浮点数
-  - `TAG_ARR` (5): 数组类型
-- **优化的响应序列化**: 使用TLV格式替代简单的状态码+数据格式
-- **二进制协议兼容性**: 支持更复杂的数据结构和类型系统
-- **扩展性**: 易于添加新的数据类型和协议功能
+- **协议**: 完整的TLV (Type-Length-Value)响应格式
+- **数据类型**: 支持nil、错误、字符串、整数、浮点数、数组
+- **扩展性**: 易于添加新的数据类型
+
+### 开发版本3 (dev_3)
+- **数据结构**: AVL平衡二叉搜索树实现
+- **功能**: 插入、删除、查找、旋转、中序遍历、偏移查询
+- **应用**: 为有序集合提供排序基础
+
+### 开发版本4 (dev_4)
+- **数据结构**: Redis-like有序集合(ZSET)
+- **命令**: ZADD, ZREM, ZSCORE, ZQUERY完整实现
+- **架构**: AVL树(按score,name排序) + 哈希表(按name索引)双索引
+- **优化**: 灵活数组存储，O(log N)高效查询
 
 ## 依赖项
 
