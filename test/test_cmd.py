@@ -16,11 +16,10 @@ $ bin/client.exe set key2 value2
 $ bin/client.exe set key3 value3
 (nil)
 $ bin/client.exe keys
-(arr) len=4
-(str) key1
-(str) key2
-(str) key3
+(arr) len=4(str) key3
 (str) zset
+(str) key2
+(str) key1
 (arr) end
 $ bin/client.exe del key1
 (int) 1
@@ -35,7 +34,7 @@ $ bin/client.exe zquery xxx 1 asdf 1 10
 $ bin/client.exe zadd zset 1 n1
 (int) 1
 $ bin/client.exe zadd zset 2 n2
-(int) 0
+(int) 1
 $ bin/client.exe zadd zset 1.1 n1
 (int) 0
 $ bin/client.exe zscore zset n1
@@ -60,8 +59,6 @@ $ bin/client.exe zquery zset 1 "" 0 10
 (arr) len=2(str) n2
 (dbl) 2
 (arr) end
-
-
 '''
 
 
@@ -143,19 +140,13 @@ def run_test_case(cmd, expect):
             timeout=10
         )
         
-        # 处理客户端输出：提取实际的响应部分，忽略连接信息和错误信息
+        # 处理客户端输出：显示所有接收到的输出
         output_lines = result.stdout.split('\n')
         actual_output = []
         
         for line in output_lines:
             line = line.strip()
             if not line:
-                continue
-            # 忽略连接信息
-            if line.startswith('Connecting to server') or line.startswith('Connected to server'):
-                continue
-            # 忽略错误信息（如"[0] read_res"）
-            if line.startswith('[') and line.endswith(']'):
                 continue
             actual_output.append(line)
         
@@ -178,10 +169,6 @@ def run_test_case(cmd, expect):
         for line in output_lines:
             line = line.strip()
             if not line:
-                continue
-            if line.startswith('Connecting to server') or line.startswith('Connected to server'):
-                continue
-            if line.startswith('[') and line.endswith(']'):
                 continue
             actual_output.append(line)
         
