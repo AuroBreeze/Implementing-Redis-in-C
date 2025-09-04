@@ -254,10 +254,19 @@ static size_t out_begin_arr(Ring_buf &buf){
     return buf.size() - 4; // the ctx arg
 };
 
-static void out_end_arr(Ring_buf &buf, size_t ctx, uint32_t n){
-    assert(buf.buf[(buf.head + ctx - 1)%buf.cap] == TAG_ARR);
-    memcpy(&buf.buf[(buf.head + ctx)%buf.cap], &n, 4);
+static void out_end_arr(Ring_buf &buf, size_t ctx, uint32_t n) {
+    // ctx 是 out_begin_arr 返回的 "逻辑位置"，它指向数组长度字段的位置
+    assert(buf.buf[(buf.head + ctx - 1) % buf.cap] == TAG_ARR);
+
+    size_t pos = (buf.head + ctx) % buf.cap;
+    size_t first = std::min(buf.cap - pos, sizeof(n));
+
+    memcpy(&buf.buf[pos], &n, first);
+    if (first < sizeof(n)) {
+        memcpy(&buf.buf[0], (uint8_t*)&n + first, sizeof(n) - first);
+    }
 }
+
 
 
 enum{
@@ -552,13 +561,19 @@ static size_t response_size(Ring_buf& buf, size_t header){
 static void response_end(Ring_buf& buf, size_t header){
     size_t msg_size = response_size(buf, header);
     if(msg_size > k_max_msg){
-        buf.tail = (buf.tail + buf.cap - msg_size) % buf.cap ;
+        // buf.tail = (buf.tail + buf.cap - msg_size) % buf.cap ;
+        buf.clear();
         out_err(buf, ERR_TOO_BIG, "response too big");
         msg_size = response_size(buf, header);
     }
     uint32_t len = (uint32_t)msg_size;
     // buf_append(buf, (const uint8_t*)&len, sizeof(len));
-    memcpy(&buf.buf[(buf.head+header)%buf.cap], &len, 4);
+
+    size_t pos = (buf.head + header) % buf.cap;
+    size_t first = std::min(buf.cap - pos, sizeof(len));
+    memcpy(&buf.buf[pos], &len, first);
+    if(first < sizeof(len)){
+        memcmp(&buf.buf[0], (uint8_t*)&len + first, sizeof(len)-first);}
 }
 
 

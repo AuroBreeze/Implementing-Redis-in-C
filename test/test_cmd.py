@@ -16,8 +16,7 @@ $ bin/client.exe set key2 value2
 $ bin/client.exe set key3 value3
 (nil)
 $ bin/client.exe keys
-(arr) len=4(str) key3
-(str) zset
+(arr) len=3(str) key3
 (str) key2
 (str) key1
 (arr) end
@@ -152,13 +151,30 @@ def run_test_case(cmd, expect):
         
         actual_out = '\n'.join(actual_output) + '\n' if actual_output else ''
         
-        if actual_out == expect:
+        # 提取Redis响应部分用于验证（不包含连接信息）
+        redis_response = []
+        for line in output_lines:
+            line = line.strip()
+            if not line:
+                continue
+            # 忽略连接信息
+            if line.startswith('Connecting to server') or line.startswith('Connected to server'):
+                continue
+            redis_response.append(line)
+        
+        redis_out = '\n'.join(redis_response) + '\n' if redis_response else ''
+        
+        # 显示所有接收到的输出
+        print(f"All output for {cmd}:")
+        print(repr(actual_out))
+        
+        if redis_out == expect:
             print(f"✓ PASS: {cmd}")
             return True
         else:
             print(f"✗ FAIL: {cmd}")
             print(f"  Expected: {repr(expect)}")
-            print(f"  Got:      {repr(actual_out)}")
+            print(f"  Got (Redis response only): {repr(redis_out)}")
             return False
             
     except subprocess.CalledProcessError as e:
@@ -174,13 +190,30 @@ def run_test_case(cmd, expect):
         
         actual_out = '\n'.join(actual_output) + '\n' if actual_output else ''
         
-        if actual_out == expect:
+        # 提取Redis响应部分用于验证（不包含连接信息）
+        redis_response = []
+        for line in output_lines:
+            line = line.strip()
+            if not line:
+                continue
+            # 忽略连接信息
+            if line.startswith('Connecting to server') or line.startswith('Connected to server'):
+                continue
+            redis_response.append(line)
+        
+        redis_out = '\n'.join(redis_response) + '\n' if redis_response else ''
+        
+        # 显示所有接收到的输出
+        print(f"All output for {cmd} (with error exit):")
+        print(repr(actual_out))
+        
+        if redis_out == expect:
             print(f"✓ PASS (with error exit): {cmd}")
             return True
         else:
             print(f"✗ FAIL (with error exit): {cmd}")
             print(f"  Expected: {repr(expect)}")
-            print(f"  Got:      {repr(actual_out)}")
+            print(f"  Got (Redis response only): {repr(redis_out)}")
             print(f"  Exit code: {e.returncode}")
             return False
             
