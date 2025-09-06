@@ -10,10 +10,12 @@
 #include <unordered_map>
 #include <cmath>
 #include <cassert>
+#include <unistd.h>
 
 #include "hashtable.h"
 #include "common.h"
 #include "zset.h"
+#include "list.h"
 #pragma comment(lib, "ws2_32.lib")
 
 #define container_of(ptr,T,member) \
@@ -65,6 +67,12 @@ static void die(const char *msg) {
     exit(1);
 }
 
+static uint64_t get_minotonic_msec(){
+    struct timespec tv = {0,0};
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return uint64_t(tv.tv_sec) * 1000 + tv.tv_nsec / 1000000;
+}
+
 static void hex_dump(const uint8_t* p, size_t n) {
     for (size_t i = 0; i < n; ++i) {
         printf("%02X", p[i]);
@@ -93,7 +101,20 @@ struct Conn {
     // vector<uint8_t> outgoing;
     Ring_buf incoming;
     Ring_buf outgoing;
+
+    // timer
+    uint64_t last_active_msec = 0;
+    DList idle_node;
 };
+
+static struct {
+    HMap db;
+
+    // fd -> conn
+    unordered_map<SOCKET, Conn*> fd2conn_map;
+    // timers for idle connections
+    DList idle_list;
+} g_data;
 
 static void buf_append(Ring_buf &buf, const uint8_t *data, size_t n){
     if (n > buf.free_cap()) return;
@@ -133,7 +154,21 @@ static Conn* handle_accept(SOCKET listen_fd) {
     Conn* conn = new Conn();
     conn->fd = connfd;
     conn->want_read = true;
+    conn->last_active_msec = get_minotonic_msec();
+
+    // put it into the map
+    if(!g_data.fd2conn_map.count(conn->fd)){
+        g_data.fd2conn_map[conn->fd] = conn;
+    }
+    assert(g_data.fd2conn_map.count(conn->fd));
     return conn;
+}
+
+static void conn_destroy(Conn* conn){
+    (void)close(conn->fd);
+    g_data.fd2conn_map.erase(conn->fd);
+    dlist_detach(&conn->idle_node);
+    delete conn;
 }
 
 const size_t k_max_args = 200 * 1000;
@@ -268,13 +303,6 @@ static void out_end_arr(Ring_buf &buf, size_t ctx, uint32_t n) {
 }
 
 
-
-enum{
-    RES_OK = 0,
-    RES_ERR = 1, // error
-    RES_NX = 2 , // key not found
-};
-
 enum{
     T_INIT = 0,
     T_STR = 1,
@@ -286,9 +314,7 @@ enum{
 // +--------+---------+
 
 
-static struct {
-    HMap db;
-} g_data;
+
 
 struct Entry{
     struct HNode node; // hashtable node
@@ -684,15 +710,48 @@ static void handle_read(Conn* conn){
     }
 }
 
+const uint64_t k_idle_timeout_ms = 60*1000;
+
+static int32_t next_timer_ms(){
+    if(dlist_empty(&g_data.idle_list)){
+        return -1; // no timers, no timeouts
+    }
+
+    uint64_t now_ms = get_minotonic_msec();
+    Conn* conn = container_of(g_data.idle_list.next, Conn, idle_node);
+    uint64_t next_ms = conn->last_active_msec + k_idle_timeout_ms;
+    if(next_ms <= now_ms){
+        return 0; // miss?
+    }
+    return (int32_t)(next_ms - now_ms);
+}
+
+static void process_timers(){
+    uint64_t now_ms = get_minotonic_msec();
+    while(!dlist_empty(&g_data.idle_list)){
+        Conn* conn = container_of(g_data.idle_list.next, Conn, idle_node);
+        uint64_t next_ms = conn->last_active_msec + k_idle_timeout_ms;
+        if(next_ms >= now_ms){
+            break;
+        }
+        fprintf(stderr, "removing idle connection: %d\n", conn->fd);
+        conn_destroy(conn);
+    }
+}
+
 int main() {
+    // initialization
+    dlist_init(&g_data.idle_list);
+
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0){
         cerr << "WSAStartup failed" << endl;
         return 1;
     }
-
+    
     SOCKET fd = socket(AF_INET, SOCK_STREAM, 0);
     if(fd == INVALID_SOCKET) die("socket() failed");
+
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -711,61 +770,77 @@ int main() {
     fd_set_nb(fd);
     cout << "Server listening on port 6379..." << endl;
 
-    unordered_map<SOCKET, Conn*> fd2conn_map;
+    // unordered_map<SOCKET, Conn*> fd2conn_map;
     vector<WSAPOLLFD> poll_args;
 
-    while(true){
-        poll_args.clear();
+while (true) {
+    poll_args.clear();
 
-        // 监听 socket
+    // 监听 socket
+    WSAPOLLFD pfd_listen{};
+    pfd_listen.fd = fd;
+    pfd_listen.events = POLLIN;  // 只监听读事件
+    poll_args.push_back(pfd_listen);
+
+    // 连接 socket
+    for (auto &kv : g_data.fd2conn_map) {
+        SOCKET cfd = kv.first;
+        Conn* conn = kv.second;
+        if (!conn) continue;
+
         WSAPOLLFD pfd{};
-        pfd.fd = fd;
-        pfd.events = POLLIN;
+        pfd.fd = cfd;
+        pfd.events = 0;
+        if (conn->want_read)  pfd.events |= POLLIN;
+        if (conn->want_write) pfd.events |= POLLOUT;
+
         poll_args.push_back(pfd);
+    }
 
-        // 所有客户端
-        for(auto& kv : fd2conn_map){
-            Conn* conn = kv.second;
-            WSAPOLLFD p{};
-            p.fd = conn->fd;
-            p.events = 0;
-            if(conn->want_read) p.events |= POLLIN;
-            if(conn->want_write) p.events |= POLLOUT;
-            poll_args.push_back(p);
-        }
+    // 计算 timeout，确保 >= -1
+    int32_t timeout_ms = next_timer_ms();
+    if (timeout_ms < -1) timeout_ms = -1;
 
-        int rv = WSAPoll(poll_args.data(), (ULONG)poll_args.size(), -1);
-        if(rv == SOCKET_ERROR){
-            int err = WSAGetLastError();
-            if(err == WSAEINTR) continue;
-            die("WSAPoll() failed");
-        }
+    int rv = WSAPoll(poll_args.data(), (ULONG)poll_args.size(), timeout_ms);
+    if (rv == SOCKET_ERROR) {
+        int err = WSAGetLastError();
+        fprintf(stderr, "[%d] WSAPoll() failed\n", err);
+        exit(1);
+    }
 
-        // 新连接
-        if(poll_args[0].revents & POLLIN){
-            if(Conn* conn = handle_accept(fd)){
-                fd2conn_map[conn->fd] = conn;
-            }
-        }
-
-        // 客户端读写
-        vector<SOCKET> to_close;
-        for(size_t i=1; i<poll_args.size(); ++i){
-            WSAPOLLFD &p = poll_args[i];
-            Conn* conn = fd2conn_map[p.fd];
-            if(!conn) continue;
-
-            if(p.revents & POLLIN) handle_read(conn);
-            if(p.revents & POLLOUT) handle_write(conn);
-            if((p.revents & POLLERR) || conn->want_close) to_close.push_back(conn->fd);
-        }
-
-        for(SOCKET cfd : to_close){
-            closesocket(cfd);
-            delete fd2conn_map[cfd];
-            fd2conn_map.erase(cfd);
+    // 处理监听 socket
+    if (poll_args[0].revents & POLLIN) {
+        Conn* conn = handle_accept(fd);
+        if (conn) {
+            // 新连接加入 idle_list
+            dlist_insert_before(&g_data.idle_list, &conn->idle_node);
         }
     }
+
+    // 处理连接 sockets
+    for (size_t i = 1; i < poll_args.size(); ++i) {
+        uint32_t ready = poll_args[i].revents;
+        if (ready == 0) continue;
+
+        Conn* conn = g_data.fd2conn_map[poll_args[i].fd];
+        if (!conn) continue;
+
+        // 更新时间，维护 idle_list
+        conn->last_active_msec = get_minotonic_msec();
+        dlist_detach(&conn->idle_node);
+        dlist_insert_before(&g_data.idle_list, &conn->idle_node);
+
+        if (ready & POLLIN)  handle_read(conn);
+        if (ready & POLLOUT) handle_write(conn);
+
+        if ((ready & POLLERR) || conn->want_close) {
+            conn_destroy(conn);
+        }
+    }
+
+    process_timers();
+}
+
 
     closesocket(fd);
     WSACleanup();
