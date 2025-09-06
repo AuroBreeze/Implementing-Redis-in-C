@@ -67,10 +67,10 @@ static void die(const char *msg) {
     exit(1);
 }
 
-static uint64_t get_minotonic_msec(){
+static uint64_t get_monotonic_msec(){
     struct timespec tv = {0,0};
     clock_gettime(CLOCK_MONOTONIC, &tv);
-    return uint64_t(tv.tv_sec) * 1000 + tv.tv_nsec / 1000000;
+    return uint64_t(tv.tv_sec) * 1000 + tv.tv_nsec / 1000 / 1000;
 }
 
 static void hex_dump(const uint8_t* p, size_t n) {
@@ -154,7 +154,9 @@ static Conn* handle_accept(SOCKET listen_fd) {
     Conn* conn = new Conn();
     conn->fd = connfd;
     conn->want_read = true;
-    conn->last_active_msec = get_minotonic_msec();
+    conn->last_active_msec = get_monotonic_msec();
+    dlist_insert_before(&g_data.idle_list, &conn->idle_node);
+
 
     // put it into the map
     if(!g_data.fd2conn_map.count(conn->fd)){
@@ -599,7 +601,7 @@ static void response_end(Ring_buf& buf, size_t header){
     size_t first = std::min(buf.cap - pos, sizeof(len));
     memcpy(&buf.buf[pos], &len, first);
     if(first < sizeof(len)){
-        memcmp(&buf.buf[0], (uint8_t*)&len + first, sizeof(len)-first);}
+        memcpy(&buf.buf[0], (uint8_t*)&len + first, sizeof(len)-first);}
 }
 
 
@@ -717,7 +719,7 @@ static int32_t next_timer_ms(){
         return -1; // no timers, no timeouts
     }
 
-    uint64_t now_ms = get_minotonic_msec();
+    uint64_t now_ms = get_monotonic_msec();
     Conn* conn = container_of(g_data.idle_list.next, Conn, idle_node);
     uint64_t next_ms = conn->last_active_msec + k_idle_timeout_ms;
     if(next_ms <= now_ms){
@@ -726,8 +728,23 @@ static int32_t next_timer_ms(){
     return (int32_t)(next_ms - now_ms);
 }
 
+static void debug_idle_list() {
+    int cnt = 0;
+    DList* it = g_data.idle_list.next;
+    fprintf(stderr, "Head fd=");
+    while (it != &g_data.idle_list) {
+        Conn* c = container_of(it, Conn, idle_node);
+        fprintf(stderr, "%d ", c->fd);
+        cnt++;
+        it = it->next;
+    }
+    fprintf(stderr, "\nIdle-list size=%d\n", cnt);
+}
+
 static void process_timers(){
-    uint64_t now_ms = get_minotonic_msec();
+    uint64_t now_ms = get_monotonic_msec();
+    // debug_idle_list();
+    
     while(!dlist_empty(&g_data.idle_list)){
         Conn* conn = container_of(g_data.idle_list.next, Conn, idle_node);
         uint64_t next_ms = conn->last_active_msec + k_idle_timeout_ms;
@@ -737,6 +754,7 @@ static void process_timers(){
         fprintf(stderr, "removing idle connection: %d\n", conn->fd);
         conn_destroy(conn);
     }
+    // debug_idle_list();
 }
 
 int main() {
@@ -799,7 +817,6 @@ while (true) {
 
     // 计算 timeout，确保 >= -1
     int32_t timeout_ms = next_timer_ms();
-    if (timeout_ms < -1) timeout_ms = -1;
 
     int rv = WSAPoll(poll_args.data(), (ULONG)poll_args.size(), timeout_ms);
     if (rv == SOCKET_ERROR) {
@@ -811,10 +828,7 @@ while (true) {
     // 处理监听 socket
     if (poll_args[0].revents & POLLIN) {
         Conn* conn = handle_accept(fd);
-        if (conn) {
-            // 新连接加入 idle_list
-            dlist_insert_before(&g_data.idle_list, &conn->idle_node);
-        }
+
     }
 
     // 处理连接 sockets
@@ -826,7 +840,7 @@ while (true) {
         if (!conn) continue;
 
         // 更新时间，维护 idle_list
-        conn->last_active_msec = get_minotonic_msec();
+        conn->last_active_msec = get_monotonic_msec();
         dlist_detach(&conn->idle_node);
         dlist_insert_before(&g_data.idle_list, &conn->idle_node);
 
@@ -840,8 +854,6 @@ while (true) {
 
     process_timers();
 }
-
-
     closesocket(fd);
     WSACleanup();
     return 0;
