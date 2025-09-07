@@ -26,6 +26,13 @@
 - ✅ **二进制协议**: 前4字节长度字段 + 变长参数
 - ✅ **TLV响应**: Type-Length-Value格式，支持多种数据类型
 
+## 致谢
+
+- [build-your-own-x](https://github.com/codecrafters-io/build-your-own-x)提供的教程
+- Redis 项目提供的设计灵感
+- Windows Socket API 文档
+- C++标准库提供的强大功能
+
 ## 项目结构
 
 ```
@@ -320,9 +327,4 @@ struct ZNode {
 
 AuroBreeze - [GitHub](https://github.com/AuroBreeze)
 
-## 致谢
 
-- [build-your-own-x](https://github.com/codecrafters-io/build-your-own-x)提供的教程
-- Redis 项目提供的设计灵感
-- Windows Socket API 文档
-- C++标准库提供的强大功能
