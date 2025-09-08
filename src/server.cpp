@@ -459,7 +459,7 @@ static void do_expire(vector<string> &cmd, Ring_buf &buf){
     key.node.hcode = str_hash((uint8_t*)key.key.data(), key.key.size());
 
     HNode* node = hm_lookup(&g_data.db, &key.node, &entry_eq);
-    if(!node){
+    if(node){
         Entry *ent = container_of(node, Entry, node);
         entry_set_ttl(ent, ttl_ms);
     }
@@ -647,7 +647,7 @@ static void do_request(std::vector<std::string> &cmd,Ring_buf &buf){
         do_del(cmd, buf);
     }else if(cmd.size() == 3 && cmd[0] == "pexpire"){
         return do_expire(cmd, buf);
-    }else if(cmd.size() == 3 && cmd[0] == "pttl"){
+    }else if(cmd.size() == 2 && cmd[0] == "pttl"){
         return do_ttl(cmd, buf);
     }else if(cmd.size() == 1 && cmd[0] == "keys"){
         do_keys(cmd, buf);
