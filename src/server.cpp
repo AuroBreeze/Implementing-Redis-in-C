@@ -466,6 +466,8 @@ static void do_expire(vector<string> &cmd, Ring_buf &buf){
     return out_int(buf, node? 1:0);
 }
 
+// pttl key
+
 static void do_ttl(vector<string> &cmd, Ring_buf &buf){
     LookupKey key;
     key.key.swap(cmd[1]);
@@ -739,8 +741,6 @@ static bool try_one_requests(Conn* conn){
     response_begin(conn->outgoing, &header_pos);
     do_request(cmd, conn->outgoing);
     response_end(conn->outgoing, header_pos);
-
-
 
     // make_response(resp,conn->outgoing);
     buf_consume(conn->incoming,4+len);
