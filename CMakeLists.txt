@@ -11,6 +11,7 @@ file(GLOB SRC_FILS
     ${PROJECT_SOURCE_DIR}/src/zset.cpp
     ${PROJECT_SOURCE_DIR}/src/avl.cpp
     ${PROJECT_SOURCE_DIR}/src/heap.cpp
+    ${PROJECT_SOURCE_DIR}/src/thread_pool.cpp
 )
 
 set(CMAKE_BUILD_TYPE Debug)

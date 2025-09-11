@@ -1,4 +1,4 @@
-# Implementing Redis in C++ : F
+# Implementing Redis in C++ : H
 # Redis C++ 实现笔记（H篇）
 
 ## 前言
